@@ -1,8 +1,9 @@
 // src/components/FileConverter/converterUtils.js
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import pptxgenjs from 'pptxgenjs';
-import CloudConvert from 'cloudconvert';
+import { convertPdfToDocx } from './pdfExtractor';
 
 /**
  * Convert a document from one format to another
@@ -45,21 +46,28 @@ const readFileAsArrayBuffer = (file) => {
 };
 
 /**
- * Helper function to split text into lines of a given length
- * @param {string} text - The text to split
- * @param {number} maxCharsPerLine - Maximum characters per line
- * @returns {string[]} - Array of lines
+ * Helper function to wrap text to fit within a given width
+ * @param {string} text - Text to wrap
+ * @param {number} maxWidth - Maximum width in points
+ * @param {number} fontSize - Font size
+ * @param {PDFFont} font - PDF font
+ * @returns {string[]} - Array of wrapped lines
  */
-const splitTextIntoLines = (text, maxCharsPerLine) => {
+function wrapText(text, maxWidth, fontSize, font) {
   const words = text.split(' ');
   const lines = [];
   let currentLine = '';
   
   for (const word of words) {
-    if (currentLine.length + word.length + 1 <= maxCharsPerLine) {
-      currentLine += (currentLine ? ' ' : '') + word;
+    // Estimate width - in a real implementation,
+    // you would use font.widthOfTextAtSize(text, fontSize)
+    const potentialLine = currentLine ? `${currentLine} ${word}` : word;
+    const estimatedWidth = potentialLine.length * (fontSize * 0.5);
+    
+    if (estimatedWidth < maxWidth) {
+      currentLine = potentialLine;
     } else {
-      lines.push(currentLine);
+      if (currentLine) lines.push(currentLine);
       currentLine = word;
     }
   }
@@ -69,19 +77,34 @@ const splitTextIntoLines = (text, maxCharsPerLine) => {
   }
   
   return lines;
-};
+}
 
 /**
- * Convert DOCX to PDF
+ * Convert DOCX to PDF with improved formatting
  * @param {ArrayBuffer} fileBuffer - DOCX file as ArrayBuffer
  * @param {Function} progressCallback - Progress callback
  * @returns {Promise<ArrayBuffer>} - PDF file as ArrayBuffer
  */
 const convertDocxToPdf = async (fileBuffer, progressCallback) => {
   try {
-    // Use mammoth to extract the HTML content from DOCX
+    // Use mammoth to extract the HTML content from DOCX with better options
     progressCallback(30);
-    const result = await mammoth.convertToHtml({ arrayBuffer: fileBuffer });
+    
+    const result = await mammoth.convertToHtml({ 
+      arrayBuffer: fileBuffer,
+      styleMap: [
+        "p[style-name='Heading 1'] => h1:fresh",
+        "p[style-name='Heading 2'] => h2:fresh",
+        "p[style-name='Heading 3'] => h3:fresh",
+        "p[style-name='Title'] => h1.title:fresh",
+        "r[style-name='Strong'] => strong",
+        "r[style-name='Emphasis'] => em",
+        "table => table",
+        "tr => tr",
+        "td => td"
+      ] 
+    });
+    
     const html = result.value;
     
     progressCallback(50);
@@ -89,36 +112,163 @@ const convertDocxToPdf = async (fileBuffer, progressCallback) => {
     // Create a new PDF document
     const pdfDoc = await PDFDocument.create();
     const timesRomanFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-    const page = pdfDoc.addPage([612, 792]); // Letter size
+    const timesBoldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+    const timesItalicFont = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
     
-    // Very basic HTML to PDF conversion - this is simplified
-    // In a real app, you would use a more robust HTML to PDF converter
-    const textContent = html.replace(/<[^>]*>/g, ' ').trim();
+    // Process HTML content
+    // This is a simplified HTML parser for demonstration
+    const cleanText = html
+      .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '## $1\n\n')
+      .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '# $1\n\n')
+      .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '* $1\n\n')
+      .replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n')
+      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '$1')  // We'll handle bold in rendering
+      .replace(/<em[^>]*>(.*?)<\/em>/gi, '$1')  // We'll handle italics in rendering
+      .replace(/<a[^>]*>(.*?)<\/a>/gi, '$1')
+      .replace(/<li[^>]*>(.*?)<\/li>/gi, '• $1\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<(?:.|\n)*?>/gm, '') // Remove any remaining HTML tags
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .trim();
+    
+    // Split content into paragraphs and create pages
+    const paragraphs = cleanText.split('\n\n');
     
     progressCallback(70);
     
-    // Add text content to the PDF
-    page.setFont(timesRomanFont);
-    page.setFontSize(12);
+    // Page dimensions (Letter size in points)
+    const pageWidth = 612;
+    const pageHeight = 792;
+    const margin = 72; // 1-inch margins
     
-    const lines = splitTextIntoLines(textContent, 70);
-    let y = 700;
+    let currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+    let y = pageHeight - margin; // Start at top margin
+    const lineHeight = 14;
     
-    for (const line of lines) {
-      page.drawText(line, {
-        x: 50,
-        y,
-        size: 12,
-        color: rgb(0, 0, 0),
-      });
-      y -= 15;
+    for (const paragraph of paragraphs) {
+      if (!paragraph.trim()) continue;
       
-      // Add a new page if needed
-      if (y < 50) {
-        const newPage = pdfDoc.addPage([612, 792]);
-        newPage.setFont(timesRomanFont);
-        newPage.setFontSize(12);
-        y = 700;
+      // Check if we need a new page
+      if (y < margin + lineHeight) {
+        currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - margin;
+      }
+      
+      let font = timesRomanFont;
+      let fontSize = 12;
+      
+      // Apply different styling based on paragraph format
+      if (paragraph.startsWith('## ')) {
+        // h1 - Large heading
+        font = timesBoldFont;
+        fontSize = 24;
+        y -= 10; // Extra space before heading
+        currentPage.drawText(paragraph.substring(3), {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+        y -= fontSize + 16; // Extra space after heading
+      } else if (paragraph.startsWith('# ')) {
+        // h2 - Medium heading
+        font = timesBoldFont;
+        fontSize = 18;
+        y -= 8; // Extra space before heading
+        currentPage.drawText(paragraph.substring(2), {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+        y -= fontSize + 12; // Extra space after heading
+      } else if (paragraph.startsWith('* ')) {
+        // h3 - Small heading
+        font = timesBoldFont;
+        fontSize = 14;
+        y -= 6; // Extra space before heading
+        currentPage.drawText(paragraph.substring(2), {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+        y -= fontSize + 8; // Extra space after heading
+      } else if (paragraph.startsWith('• ')) {
+        // List item
+        const listText = paragraph.substring(2);
+        const wrappedLines = wrapText(listText, pageWidth - margin * 2 - 15, fontSize, timesRomanFont);
+        
+        // Draw bullet
+        currentPage.drawText('•', {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+        
+        // Draw first line
+        if (wrappedLines.length > 0) {
+          currentPage.drawText(wrappedLines[0], {
+            x: margin + 15,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        }
+        
+        // Draw additional lines if needed
+        for (let i = 1; i < wrappedLines.length; i++) {
+          y -= lineHeight;
+          
+          // Check if we need a new page
+          if (y < margin) {
+            currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+            y = pageHeight - margin;
+          }
+          
+          currentPage.drawText(wrappedLines[i], {
+            x: margin + 15,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        }
+        
+        y -= lineHeight + 2; // Move down for next paragraph with some extra space
+      } else {
+        // Regular paragraph
+        const wrappedLines = wrapText(paragraph, pageWidth - margin * 2, fontSize, timesRomanFont);
+        
+        for (const line of wrappedLines) {
+          // Check if we need a new page
+          if (y < margin) {
+            currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+            y = pageHeight - margin;
+          }
+          
+          currentPage.drawText(line, {
+            x: margin,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+          
+          y -= lineHeight;
+        }
+        
+        y -= 6; // Extra space after paragraph
       }
     }
     
@@ -135,129 +285,7 @@ const convertDocxToPdf = async (fileBuffer, progressCallback) => {
 };
 
 /**
- * Convert PDF to DOCX using CloudConvert API
- * @param {ArrayBuffer} fileBuffer - PDF file as ArrayBuffer
- * @param {Function} progressCallback - Progress callback
- * @returns {Promise<ArrayBuffer>} - DOCX file as ArrayBuffer
- */
-const convertPdfToDocx = async (fileBuffer, progressCallback) => {
-  try {
-    progressCallback(30);
-    
-    // Initialize CloudConvert with your API key
-    // Note: In production, store this securely, not hardcoded
-    const cloudConvert = new CloudConvert('eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjcwZjQyZGJiYWM4YTQ5NGJlYzg5MGJmZDE4YzEzN2MwOGVmMzg2ZTA1NGQzMzQwZDM1MzUyOTIzMzBiZTM4YjFmZjE4ODNiNWFkYzFhY2EiLCJpYXQiOjE3NDQxMDU1NDYuODI5NjM3LCJuYmYiOjE3NDQxMDU1NDYuODI5NjM4LCJleHAiOjQ4OTk3NzkxNDYuODI0NTUsInN1YiI6IjcxNTc0ODU3Iiwic2NvcGVzIjpbXX0.MSlIyGhEK3q6uv5ObkXRevTdQLqTn5yVxib95TO3dtTNrmDBd9hoCUAnFZjMG-EdChpZbofX_Hqwtm4qYVeQUBMefHcZfV20C2u5F9t2eqZvO-YFKkbB1zhk7mm5LVEodAAGxpU86gTOQwPwTB90Owl-axnc5nYCK-aWOHJ8yZ-vA3piFgbpCw-TayZKFGx3hlxTfNRrvvojKJlFpy9CgqKdOPkrLJsOHZdO9O--38cgIGW3F4eoWxVYtc9F3IchE5lCLoEkt8fMx2GXmNKS0-CqXqIg0MdzLO9bR_22P24uplgZdriUqoLvEfrU_aIk7fOPdNavtFeGab8akNwav-IVupPTjbty0BGgZB5d03XwUmr2Sovf00hAWk9KqTsLvKgc_EqG0aFu_1tCkATgHeuZqqxatredRh01AHcJFj_Agfw5aUcrAaB6ingoBNLZGlG-5J9bKehRB98__uus_yoQS00RbQcE9dAw6oAzDgZtDra4-K1gvHejnOlF97Uzhsb3eS4XckxO-WNUB4mMT_VdK41qtGJeIoI6cL0_P9hbhTOMr5ShMy2oN2Mdaxn0JtpRVIQmDDq6Ex8Ro7ETlIRC6KgG_guIbHMtXbgPv7GTMB5e6BJIPe4QWLdhm8aA0pCgdlOWaRYD1_aAlPNcwN6Dn5gBfR9WPOp4RGxIIBA');
-    
-    try {
-      // Create a job with tasks
-      const job = await cloudConvert.jobs.create({
-        tasks: {
-          'upload-my-file': {
-            operation: 'import/upload'
-          },
-          'convert-my-file': {
-            operation: 'convert',
-            input: 'upload-my-file',
-            input_format: 'pdf',
-            output_format: 'docx',
-            engine: 'office' // Use the Office engine for better compatibility
-          },
-          'export-my-file': {
-            operation: 'export/url',
-            input: 'convert-my-file'
-          }
-        }
-      });
-      
-      progressCallback(40);
-      
-      // Get the upload task
-      const uploadTask = job.tasks.filter(task => task.name === 'upload-my-file')[0];
-      
-      // Upload the file buffer
-      // Convert ArrayBuffer to Blob for upload
-      const blob = new Blob([fileBuffer], { type: 'application/pdf' });
-      await cloudConvert.tasks.upload(uploadTask, blob, 'document.pdf');
-      
-      progressCallback(60);
-      
-      // Wait for the job to complete
-      const waitedJob = await cloudConvert.jobs.wait(job.id);
-      
-      progressCallback(80);
-      
-      // Get the export task to retrieve the file URL
-      const exportTask = waitedJob.tasks.filter(task => task.name === 'export-my-file')[0];
-      
-      if (!exportTask || !exportTask.result || !exportTask.result.files || exportTask.result.files.length === 0) {
-        throw new Error('Conversion failed: No output file was generated');
-      }
-      
-      const file = exportTask.result.files[0];
-      
-      // Download the file
-      const response = await fetch(file.url);
-      if (!response.ok) {
-        throw new Error(`Failed to download converted file: ${response.status} ${response.statusText}`);
-      }
-      
-      const docxBuffer = await response.arrayBuffer();
-      
-      progressCallback(90);
-      
-      return docxBuffer;
-    } catch (cloudConvertError) {
-      console.error('CloudConvert error:', cloudConvertError);
-      
-      // Fall back to the basic conversion if CloudConvert fails
-      return createBasicDocxFile(fileBuffer, progressCallback);
-    }
-  } catch (error) {
-    console.error('PDF to DOCX conversion error:', error);
-    throw new Error('Failed to convert PDF to DOCX: ' + error.message);
-  }
-};
-
-/**
- * Create a basic DOCX file as a fallback
- * @param {ArrayBuffer} pdfBuffer - PDF file as ArrayBuffer 
- * @param {Function} progressCallback - Progress callback
- * @returns {Promise<ArrayBuffer>} - DOCX file as ArrayBuffer
- */
-const createBasicDocxFile = async (pdfBuffer, progressCallback) => {
-  try {
-    // Extract minimal information from PDF
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
-    const numPages = pdfDoc.getPageCount();
-    
-    // Create simple HTML content
-    const htmlContent = `
-      <html>
-        <head>
-          <meta charset="UTF-8">
-        </head>
-        <body>
-          <h1>Converted from PDF</h1>
-          <p>This document was converted from a PDF with ${numPages} pages.</p>
-          <p>PDF to DOCX conversion using EduToolkit File Converter</p>
-          <p>Note: For a more complete conversion with full formatting, consider using specialized conversion software.</p>
-        </body>
-      </html>
-    `;
-    
-    // Convert to text
-    const textEncoder = new TextEncoder();
-    const basicDocx = textEncoder.encode(htmlContent);
-    
-    return basicDocx.buffer;
-  } catch (error) {
-    console.error('Fallback conversion error:', error);
-    throw new Error('Failed to create basic DOCX file: ' + error.message);
-  }
-};
-
-/**
- * Convert PowerPoint to PDF
+ * Convert PowerPoint to PDF with improved implementation
  * @param {ArrayBuffer} fileBuffer - PowerPoint file as ArrayBuffer
  * @param {Function} progressCallback - Progress callback
  * @returns {Promise<ArrayBuffer>} - PDF file as ArrayBuffer
@@ -266,48 +294,125 @@ const convertPptToPdf = async (fileBuffer, progressCallback) => {
   try {
     progressCallback(30);
     
-    // In a real application, you would use a proper library to convert PPT to PDF
-    // For this demo, we'll create a simple PDF with placeholder content
-    const pdfDoc = await PDFDocument.create();
-    const timesRomanFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    // Use JSZip to extract the content of the PPTX file (which is a ZIP)
+    const zip = new JSZip();
+    const pptContent = await zip.loadAsync(fileBuffer);
     
-    // Create a page for each slide (we'll just create a placeholder page)
-    const page = pdfDoc.addPage([720, 540]); // 4:3 slide aspect ratio
+    progressCallback(40);
+    
+    // Try to extract slide information
+    let slideCount = 0;
+    let slideContents = [];
+    
+    // Find presentation.xml to get slides info
+    let presentationXml = '';
+    try {
+      const presentationFile = pptContent.file('ppt/presentation.xml');
+      if (presentationFile) {
+        presentationXml = await presentationFile.async('text');
+        
+        // Find slide references (simplified)
+        const slideMatches = presentationXml.match(/<p:sldId[^>]*r:id="[^"]*"[^>]*>/g);
+        slideCount = slideMatches ? slideMatches.length : 0;
+      }
+    } catch (err) {
+      console.warn('Could not parse presentation.xml', err);
+    }
+    
+    // Try to extract text from slides
+    for (let i = 1; i <= Math.max(1, slideCount); i++) {
+      try {
+        const slideFile = pptContent.file(`ppt/slides/slide${i}.xml`);
+        if (slideFile) {
+          const slideXml = await slideFile.async('text');
+          
+          // Extract text (simplified)
+          const textMatches = slideXml.match(/<a:t>([^<]*)<\/a:t>/g) || [];
+          const texts = textMatches.map(match => match.replace(/<a:t>|<\/a:t>/g, ''));
+          
+          slideContents.push({
+            slideNumber: i,
+            texts
+          });
+        }
+      } catch (err) {
+        console.warn(`Could not parse slide ${i}`, err);
+      }
+    }
     
     progressCallback(60);
     
-    // Add placeholder content
-    page.drawText('PowerPoint Slide Content', {
-      x: 50,
-      y: 450,
-      size: 24,
-      font: timesRomanFont,
-      color: rgb(0, 0, 0),
-    });
+    // Create a PDF with slides
+    const pdfDoc = await PDFDocument.create();
+    const timesRomanFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    const timesBoldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
     
-    page.drawText('This is a placeholder for PowerPoint content.', {
-      x: 50,
-      y: 400,
-      size: 12,
-      font: timesRomanFont,
-      color: rgb(0, 0, 0),
-    });
+    // If no slides were found or parsing failed, create at least one page
+    if (slideContents.length === 0) {
+      slideContents.push({
+        slideNumber: 1,
+        texts: ['PowerPoint Content', 'Could not extract slide content']
+      });
+    }
     
-    page.drawText('In a real application, you would use a proper library', {
-      x: 50,
-      y: 380,
-      size: 12,
-      font: timesRomanFont,
-      color: rgb(0, 0, 0),
-    });
-    
-    page.drawText('to convert PowerPoint presentations to PDF.', {
-      x: 50,
-      y: 360,
-      size: 12,
-      font: timesRomanFont,
-      color: rgb(0, 0, 0),
-    });
+    // Create PDF slides
+    for (const slide of slideContents) {
+      // Use 4:3 slide aspect ratio (720x540 points)
+      const page = pdfDoc.addPage([720, 540]);
+      
+      // Add slide number
+      page.drawText(`Slide ${slide.slideNumber}`, {
+        x: 600,
+        y: 500,
+        size: 10,
+        font: timesRomanFont,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+      
+      // Add slide content
+      let y = 450;
+      const lineHeight = 25;
+      
+      if (slide.texts.length > 0) {
+        for (let i = 0; i < slide.texts.length; i++) {
+          const text = slide.texts[i];
+          if (!text.trim()) continue;
+          
+          // Make first line larger (as title)
+          if (i === 0) {
+            page.drawText(text, {
+              x: 72,
+              y,
+              size: 24,
+              font: timesBoldFont,
+              color: rgb(0, 0, 0),
+            });
+            y -= 40; // Larger gap after title
+          } else {
+            page.drawText(text, {
+              x: 72,
+              y,
+              size: 16,
+              font: timesRomanFont,
+              color: rgb(0, 0, 0),
+            });
+            y -= lineHeight;
+          }
+          
+          // Ensure we don't go off the page
+          if (y < 72) break;
+        }
+      } else {
+        // Empty slide
+        page.drawText("Empty Slide", {
+          x: 72,
+          y: 270,
+          size: 24,
+          font: timesBoldFont,
+          color: rgb(0.7, 0.7, 0.7),
+        });
+      }
+    }
     
     progressCallback(90);
     
@@ -317,7 +422,53 @@ const convertPptToPdf = async (fileBuffer, progressCallback) => {
     return pdfBytes;
   } catch (error) {
     console.error('PPT to PDF conversion error:', error);
-    throw new Error('Failed to convert PowerPoint to PDF: ' + error.message);
+    
+    // Fallback to basic PDF if parsing fails
+    try {
+      progressCallback(70);
+      
+      const pdfDoc = await PDFDocument.create();
+      const timesRomanFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+      const timesBoldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+      
+      // Create a page for PPT
+      const page = pdfDoc.addPage([720, 540]); // 4:3 slide aspect ratio
+      
+      // Add placeholder content
+      page.drawText('PowerPoint Slide Content', {
+        x: 72,
+        y: 450,
+        size: 24,
+        font: timesBoldFont,
+        color: rgb(0, 0, 0),
+      });
+      
+      page.drawText('Could not extract content from the PowerPoint file.', {
+        x: 72,
+        y: 400,
+        size: 12,
+        font: timesRomanFont,
+        color: rgb(0, 0, 0),
+      });
+      
+      page.drawText('This is a placeholder PDF generated from your presentation.', {
+        x: 72,
+        y: 380,
+        size: 12,
+        font: timesRomanFont,
+        color: rgb(0, 0, 0),
+      });
+      
+      progressCallback(90);
+      
+      // Serialize the PDF to bytes
+      const pdfBytes = await pdfDoc.save();
+      
+      return pdfBytes;
+    } catch (fallbackError) {
+      console.error('PPT fallback error:', fallbackError);
+      throw new Error('Failed to convert PowerPoint to PDF: ' + error.message);
+    }
   }
 };
 

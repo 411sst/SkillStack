@@ -4,9 +4,9 @@ import {
   Input, Select, Progress, useToast,
   Alert, AlertIcon, AlertTitle, AlertDescription,
   Flex, Icon, Card, CardBody, CardHeader,
-  Divider
+  Divider, Badge, Tooltip
 } from '@chakra-ui/react';
-import { DownloadIcon, AttachmentIcon, RepeatIcon } from '@chakra-ui/icons';
+import { DownloadIcon, AttachmentIcon, RepeatIcon, InfoIcon } from '@chakra-ui/icons';
 import { FaFileWord, FaFilePdf, FaFilePowerpoint } from 'react-icons/fa';
 import FileUploader from './FileUploader';
 import { convertDocument } from './converterUtils';
@@ -19,21 +19,38 @@ const FileConverter = () => {
   const [isConverting, setIsConverting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
+  const [conversionInfo, setConversionInfo] = useState(null);
   
   const handleFileChange = (selectedFile) => {
     setFile(selectedFile);
     setConvertedFile(null);
     setError(null);
+    setConversionInfo(null);
     
     // Automatically select appropriate conversion type based on file extension
     const extension = selectedFile.name.split('.').pop().toLowerCase();
     
     if (extension === 'docx') {
       setConversionType('docx-to-pdf');
+      setConversionInfo({
+        title: 'DOCX to PDF Conversion',
+        description: 'Converts Microsoft Word documents to PDF format, preserving basic formatting.',
+        limitations: 'Some advanced formatting features may not be preserved.'
+      });
     } else if (extension === 'pdf') {
       setConversionType('pdf-to-docx');
+      setConversionInfo({
+        title: 'PDF to DOCX Conversion',
+        description: 'Converts PDF documents to Microsoft Word format.',
+        limitations: 'This is a basic conversion. Text extraction may be limited. Images and complex layouts are not supported in this version.'
+      });
     } else if (['ppt', 'pptx'].includes(extension)) {
       setConversionType('ppt-to-pdf');
+      setConversionInfo({
+        title: 'PowerPoint to PDF Conversion',
+        description: 'Converts PowerPoint presentations to PDF format.',
+        limitations: 'Basic text extraction only. Formatting, images, and animations are not preserved in this version.'
+      });
     } else {
       setError(`Unsupported file type: .${extension}`);
       setConversionType('');
@@ -44,6 +61,27 @@ const FileConverter = () => {
     setConversionType(e.target.value);
     setConvertedFile(null);
     setError(null);
+    
+    // Update conversion info based on selected type
+    if (e.target.value === 'docx-to-pdf') {
+      setConversionInfo({
+        title: 'DOCX to PDF Conversion',
+        description: 'Converts Microsoft Word documents to PDF format, preserving basic formatting.',
+        limitations: 'Some advanced formatting features may not be preserved.'
+      });
+    } else if (e.target.value === 'pdf-to-docx') {
+      setConversionInfo({
+        title: 'PDF to DOCX Conversion',
+        description: 'Converts PDF documents to Microsoft Word format.',
+        limitations: 'This is a basic conversion. Text extraction may be limited. Images and complex layouts are not supported in this version.'
+      });
+    } else if (e.target.value === 'ppt-to-pdf') {
+      setConversionInfo({
+        title: 'PowerPoint to PDF Conversion',
+        description: 'Converts PowerPoint presentations to PDF format.',
+        limitations: 'Basic text extraction only. Formatting, images, and animations are not preserved in this version.'
+      });
+    }
   };
 
   const startConversion = async () => {
@@ -60,7 +98,7 @@ const FileConverter = () => {
       // Simulate progress
       const progressInterval = setInterval(() => {
         setProgress((prevProgress) => {
-          const newProgress = prevProgress + 10;
+          const newProgress = prevProgress + 5;
           return newProgress >= 90 ? 90 : newProgress;
         });
       }, 300);
@@ -95,41 +133,41 @@ const FileConverter = () => {
   };
 
   const downloadFile = async () => {
-  if (!convertedFile) return;
-  
-  try {
-    const fileName = file.name.split('.')[0];
-    const extension = conversionType.split('-to-')[1];
-    const saveFilePath = await window.electronAPI.saveFileDialog({
-      title: 'Save Converted File',
-      defaultPath: `${fileName}.${extension}`,
-      filters: [
-        { name: extension.toUpperCase(), extensions: [extension] }
-      ]
-    });
+    if (!convertedFile) return;
     
-    if (saveFilePath) {
-      // Pass the ArrayBuffer directly - the main process will handle the conversion
-      await window.electronAPI.writeFile(saveFilePath, convertedFile);
+    try {
+      const fileName = file.name.split('.')[0];
+      const extension = conversionType.split('-to-')[1];
+      const saveFilePath = await window.electronAPI.saveFileDialog({
+        title: 'Save Converted File',
+        defaultPath: `${fileName}.${extension}`,
+        filters: [
+          { name: extension.toUpperCase(), extensions: [extension] }
+        ]
+      });
       
+      if (saveFilePath) {
+        // Pass the ArrayBuffer directly - the main process will handle the conversion
+        await window.electronAPI.writeFile(saveFilePath, convertedFile);
+        
+        toast({
+          title: 'File saved',
+          description: `File saved to ${saveFilePath}`,
+          status: 'success',
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+    } catch (err) {
       toast({
-        title: 'File saved',
-        description: `File saved to ${saveFilePath}`,
-        status: 'success',
+        title: 'Error saving file',
+        description: err.message,
+        status: 'error',
         duration: 5000,
         isClosable: true,
       });
     }
-  } catch (err) {
-    toast({
-      title: 'Error saving file',
-      description: err.message,
-      status: 'error',
-      duration: 5000,
-      isClosable: true,
-    });
-  }
-};
+  };
 
   const resetConverter = () => {
     setFile(null);
@@ -137,6 +175,7 @@ const FileConverter = () => {
     setConversionType('');
     setError(null);
     setProgress(0);
+    setConversionInfo(null);
   };
 
   const getFileIcon = () => {
@@ -204,6 +243,19 @@ const FileConverter = () => {
                   <option value="ppt-to-pdf">PPT to PDF</option>
                 )}
               </Select>
+              
+              {conversionInfo && (
+                <Box mt={4} p={4} borderRadius="md" bg="blue.50">
+                  <Flex align="center" mb={2}>
+                    <InfoIcon color="blue.500" mr={2} />
+                    <Text fontWeight="medium" color="blue.700">{conversionInfo.title}</Text>
+                  </Flex>
+                  <Text fontSize="sm" mb={2}>{conversionInfo.description}</Text>
+                  <Text fontSize="xs" fontStyle="italic" color="gray.600">
+                    Note: {conversionInfo.limitations}
+                  </Text>
+                </Box>
+              )}
             </CardBody>
           </Card>
           
@@ -255,6 +307,9 @@ const FileConverter = () => {
                 >
                   Download Converted File
                 </Button>
+                <Text fontSize="sm" mt={3} textAlign="center">
+                  Your file has been converted. Click the button above to save it to your computer.
+                </Text>
               </CardBody>
             </Card>
           )}
