@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import App from './App';
 import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 
-// Extend the theme for custom colors, fonts, etc
+// Extend the theme for Skill Stack
 const theme = extendTheme({
   colors: {
     brand: {

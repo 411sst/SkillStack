@@ -207,8 +207,8 @@ async function createDocxFromText(extractedPages) {
     'xmlns:dcterms="http://purl.org/dc/terms/" ' +
     'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
     '<dc:title>Converted PDF Document</dc:title>' +
-    '<dc:creator>EduToolkit File Converter</dc:creator>' +
-    '<cp:lastModifiedBy>EduToolkit</cp:lastModifiedBy>' +
+    '<dc:creator>Skill Stack File Converter</dc:creator>' +
+    '<cp:lastModifiedBy>Skill Stack</cp:lastModifiedBy>' +
     '<dcterms:created xsi:type="dcterms:W3CDTF">' + now + 'Z</dcterms:created>' +
     '<dcterms:modified xsi:type="dcterms:W3CDTF">' + now + 'Z</dcterms:modified>' +
     '</cp:coreProperties>');
@@ -217,7 +217,7 @@ async function createDocxFromText(extractedPages) {
   zip.file('docProps/app.xml',
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">' +
-    '<Application>EduToolkit</Application>' +
+    '<Application>Skill Stack</Application>' +
     '<AppVersion>1.0</AppVersion>' +
     '</Properties>');
   
@@ -269,7 +269,7 @@ async function createDocxFromText(extractedPages) {
     '<w:i/>' +
     '<w:color w:val="808080"/>' +
     '</w:rPr>' +
-    '<w:t>Converted from PDF using EduToolkit File Converter</w:t>' +
+    '<w:t>Converted from PDF using Skill Stack File Converter</w:t>' +
     '</w:r>' +
     '</w:p>';
   

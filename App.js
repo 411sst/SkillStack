@@ -33,7 +33,7 @@ const App = () => {
             aria-label="Open menu"
             mr={4}
           />
-          <Heading size="md">EduToolkit</Heading>
+          <Heading size="md">Skill Stack</Heading>
         </Flex>
       </Flex>
 
