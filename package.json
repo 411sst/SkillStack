@@ -1,5 +1,5 @@
 {
-  "name": "edutoolkit",
+  "name": "skillstack",
   "version": "1.0.0",
   "description": "Educational Toolbox App for students",
   "main": "main.js",
@@ -71,7 +71,7 @@
         {
           "name": "@electron-forge/maker-squirrel",
           "config": {
-            "name": "EduToolkit"
+            "name": "SkillStack"
           }
         },
         {

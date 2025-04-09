@@ -1,4 +1,4 @@
-# EduToolkit
+# Skill Stack
 
 A comprehensive educational toolbox for high school and university students across STEM, coding, commerce, and humanities disciplines.
 
@@ -19,8 +19,8 @@ A comprehensive educational toolbox for high school and university students acro
 
 1. Clone the repository or download the source code:
    ```bash
-   git clone https://github.com/yourusername/EduToolkit.git
-   cd EduToolkit
+   git clone https://github.com/yourusername/SkillStack.git
+   cd SkillStack
    ```
 
 2. Install dependencies:
@@ -57,7 +57,7 @@ The File Converter module allows students to convert between different document 
 ## Project Structure
 
 ```
-EduToolkit/
+SkillStack/
 │
 ├── src/                  # Source files
 │   ├── components/       # React components
