@@ -494,7 +494,18 @@ function extractTextWithProperSpacing(textXml) {
 }
 
 /**
- * Draw slide text with proper spacing between words
+ * Get canvas font string
+ * @param {Object} run - Text run with formatting
+ * @returns {string} - Canvas font string
+ */
+function getCanvasFont(run) {
+  const fontWeight = run.isBold ? 'bold' : 'normal';
+  const fontStyle = run.isItalic ? 'italic' : 'normal';
+  return `${fontStyle} ${fontWeight} ${run.fontSize}px ${run.fontFamily}`;
+}
+
+/**
+ * Draw slide text with fixed bullet point rendering and improved text wrapping
  * @param {CanvasRenderingContext2D} ctx - Canvas context
  * @param {number} width - Slide width
  * @param {number} height - Slide height
@@ -502,326 +513,610 @@ function extractTextWithProperSpacing(textXml) {
  */
 async function drawSlideText(ctx, width, height, slideXml) {
   try {
-    // Extract text shapes
-    const textShapes = slideXml.match(/<p:sp[^>]*>.*?<p:txBody>.*?<\/p:txBody>.*?<\/p:sp>/gs) || [];
+    // Define standard conversion factor: 914400 EMUs = 1 inch, at 96 DPI, 1 inch = 96 pixels
+    const EMU_TO_PIXEL = 96 / 914400;
     
-    // Process each text shape
+    // Font fallback map
+    const fontFallbackMap = {
+      'Arial': 'Arial, Helvetica, sans-serif',
+      'Calibri': 'Calibri, Arial, sans-serif',
+      'default': 'Arial, Helvetica, sans-serif'
+    };
+    
+    // Extract text shapes - using a more robust pattern to capture all text
+    const textShapes = slideXml.match(/<p:sp[^>]*>[\s\S]*?<p:txBody>[\s\S]*?<\/p:txBody>[\s\S]*?<\/p:sp>/g) || [];
+    if (textShapes.length === 0) return;
+    
+    console.log(`Found ${textShapes.length} text shapes to process`);
+    
+    // First pass to analyze shapes
+    const shapeInfo = [];
+    
     for (const shapeXml of textShapes) {
       try {
-        // Extract text body
-        const txBodyMatch = shapeXml.match(/<p:txBody>(.*?)<\/p:txBody>/s);
-        if (!txBodyMatch) continue;
-        
         // Get position and size
-        const xfrmMatch = shapeXml.match(/<a:xfrm[^>]*>(.*?)<\/a:xfrm>/s);
+        const xfrmMatch = shapeXml.match(/<a:xfrm[\s\S]*?<a:off\s+x="(\d+)"\s+y="(\d+)"[\s\S]*?<a:ext\s+cx="(\d+)"\s+cy="(\d+)"/);
         if (!xfrmMatch) continue;
         
-        const offMatch = xfrmMatch[1].match(/<a:off\s+x="(\d+)"\s+y="(\d+)"/);
-        const extMatch = xfrmMatch[1].match(/<a:ext\s+cx="(\d+)"\s+cy="(\d+)"/);
+        // Apply conversion
+        const x = parseInt(xfrmMatch[1]) * EMU_TO_PIXEL;
+        const y = parseInt(xfrmMatch[2]) * EMU_TO_PIXEL;
+        const boxWidth = parseInt(xfrmMatch[3]) * EMU_TO_PIXEL;
+        const boxHeight = parseInt(xfrmMatch[4]) * EMU_TO_PIXEL;
         
-        if (!offMatch || !extMatch) continue;
-        
-        // Check if this is a placeholder and what type
-        const nvSpPrMatch = shapeXml.match(/<p:nvSpPr>.*?<\/p:nvSpPr>/s);
+        // Check placeholder type
+        const nvSpPrMatch = shapeXml.match(/<p:nvSpPr>[\s\S]*?<\/p:nvSpPr>/);
         let placeholderType = null;
+        let shapeName = "text";
+        
         if (nvSpPrMatch) {
           const phTypeMatch = nvSpPrMatch[0].match(/<p:ph\s+type="([^"]*)"/);
           if (phTypeMatch) {
             placeholderType = phTypeMatch[1];
           }
+          
+          const nameMatch = nvSpPrMatch[0].match(/<p:cNvPr\s+id="\d+"\s+name="([^"]*)"/);
+          if (nameMatch) {
+            shapeName = nameMatch[1];
+          }
         }
         
-        // Convert EMUs to pixels (1 inch = 914400 EMUs, assuming 96 DPI)
-        const emuToPixel = 96 / 914400;
-        const x = parseInt(offMatch[1]) * emuToPixel;
-        const y = parseInt(offMatch[2]) * emuToPixel;
-        const boxWidth = parseInt(extMatch[1]) * emuToPixel;
-        const boxHeight = parseInt(extMatch[2]) * emuToPixel;
+        // Extract text body
+        const txBodyMatch = shapeXml.match(/<p:txBody>([\s\S]*?)<\/p:txBody>/);
+        if (!txBodyMatch) continue;
         
-        // Extract paragraphs
-        const paragraphs = txBodyMatch[1].match(/<a:p>.*?<\/a:p>/gs) || [];
+        // Store shape info
+        shapeInfo.push({
+          x, y, boxWidth, boxHeight,
+          placeholderType,
+          shapeName,
+          isTitle: placeholderType === 'title' || 
+                  placeholderType === 'ctrTitle' || 
+                  shapeXml.includes('type="title"'),
+          isSubtitle: placeholderType === 'subTitle',
+          textBody: txBodyMatch[1],
+          shape: shapeXml
+        });
+      } catch (err) {
+        console.warn('Error analyzing text shape:', err);
+      }
+    }
+    
+    // Sort shapes by vertical position
+    shapeInfo.sort((a, b) => a.y - b.y);
+    
+    // Process each shape
+    for (const info of shapeInfo) {
+      try {
+        // Get position and size
+        const x = info.x;
+        const y = info.y;
+        const boxWidth = info.boxWidth;
+        const boxHeight = info.boxHeight;
+        
+        console.log(`Processing text shape: ${info.shapeName} at (${Math.round(x)}, ${Math.round(y)}) size: ${Math.round(boxWidth)}x${Math.round(boxHeight)}`);
+        
+        // Extract paragraphs with a more robust pattern
+        const paragraphs = info.textBody.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
         if (paragraphs.length === 0) continue;
         
-        // Determine if this is a title based on placeholder type or other cues
-        const isTitle = placeholderType === 'title' || 
-                      placeholderType === 'ctrTitle' || 
-                      shapeXml.includes('type="title"');
-                      
-        const isSubtitle = placeholderType === 'subTitle';
-        
-        // Process paragraphs
-        let yOffset = 5; // Start with a small top margin
-        const defaultLineHeight = 1.2; // Standard line height multiplier
-        
-        // Set default font properties based on shape type
+        // Set default font properties
         let defaultFontSize = 18; // Regular text
-        if (isTitle) defaultFontSize = 32;
-        else if (isSubtitle) defaultFontSize = 24;
+        if (info.isTitle) defaultFontSize = 32;
+        else if (info.isSubtitle) defaultFontSize = 24;
+        
+        // Check vertical alignment
+        let verticalAlignment = 'top'; // Default
+        const textVertAlign = info.textBody.match(/<a:bodyPr[^>]*anchor="([^"]*)"/);
+        if (textVertAlign) {
+          if (textVertAlign[1] === 'ctr') verticalAlignment = 'middle';
+          else if (textVertAlign[1] === 'b') verticalAlignment = 'bottom';
+        }
+        
+        // Debug - draw shape boundary
+        // ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+        // ctx.lineWidth = 1;
+        // ctx.strokeRect(x, y, boxWidth, boxHeight);
+        
+        // Precompute paragraph heights for better layout
+        let totalTextHeight = 0;
+        const paragraphsInfo = [];
         
         for (const paragraph of paragraphs) {
-          // Get paragraph style for vertical spacing
-          let lineSpacing = defaultLineHeight;
+          // Get paragraph style
+          let lineSpacing = 1.2; // Default
           let beforeSpacing = 0;
           let afterSpacing = 0;
+          let alignment = 'left';
+          let indentLevel = 0;
+          let isBullet = false;
+          let bulletChar = '•';
           
+          // Extract paragraph properties
           const pPrMatch = paragraph.match(/<a:pPr[^>]*>/);
           if (pPrMatch) {
-            // Find line spacing if specified
+            // Line spacing
             const lnSpcMatch = paragraph.match(/<a:lnSpc><a:spcPct\s+val="(\d+)"/);
             if (lnSpcMatch) {
-              // Line spacing is in percentage (1000 = 100%)
               lineSpacing = parseInt(lnSpcMatch[1]) / 100000;
             }
             
-            // Find spacing before paragraph
+            // Spacing before
             const spcBMatch = paragraph.match(/<a:spcBef><a:spcPts\s+val="(\d+)"/);
             if (spcBMatch) {
-              beforeSpacing = parseInt(spcBMatch[1]) / 100; // Convert to points
+              beforeSpacing = parseInt(spcBMatch[1]) / 100;
             }
             
-            // Find spacing after paragraph
+            // Spacing after
             const spcAMatch = paragraph.match(/<a:spcAft><a:spcPts\s+val="(\d+)"/);
             if (spcAMatch) {
-              afterSpacing = parseInt(spcAMatch[1]) / 100; // Convert to points
+              afterSpacing = parseInt(spcAMatch[1]) / 100;
+            }
+            
+            // Alignment
+            const algnMatch = paragraph.match(/algn="([^"]*)"/);
+            if (algnMatch) {
+              if (algnMatch[1] === 'ctr') alignment = 'center';
+              else if (algnMatch[1] === 'r') alignment = 'right';
+              else alignment = 'left';
+            }
+            
+            // Indent level - critical for bullet points
+            const lvlMatch = paragraph.match(/<a:pPr\s+lvl="(\d+)"/);
+            if (lvlMatch) {
+              indentLevel = parseInt(lvlMatch[1]);
+            }
+            
+            // Check for bullet point
+            isBullet = paragraph.includes('<a:buChar') || 
+                      paragraph.includes('<a:buAutoNum') ||
+                      paragraph.includes('<a:buFont');
+            
+            if (isBullet) {
+              const buCharMatch = paragraph.match(/<a:buChar\s+char="([^"]*)"/);
+              if (buCharMatch) {
+                bulletChar = buCharMatch[1];
+              }
             }
           }
           
-          // Add before spacing
-          yOffset += beforeSpacing;
+          // Extract text runs
+          const textRuns = paragraph.match(/<a:r>[\s\S]*?<\/a:r>/g) || [];
+          let maxFontSize = defaultFontSize;
           
-          // Get paragraph alignment
-          let alignment = 'left';
-          const algnMatch = paragraph.match(/<a:pPr[^>]*algn="([^"]*)"/);
-          if (algnMatch) {
-            // Map PowerPoint alignment to canvas
-            if (algnMatch[1] === 'ctr') alignment = 'center';
-            else if (algnMatch[1] === 'r') alignment = 'right';
-          }
-          
-          // Check if this is a bullet point
-          const isBullet = paragraph.includes('<a:buChar') || 
-                          paragraph.includes('<a:buAutoNum') ||
-                          paragraph.includes('<a:buFont');
-          
-          let bulletChar = '•';
-          const buCharMatch = paragraph.match(/<a:buChar\s+char="([^"]*)"/);
-          if (buCharMatch) {
-            bulletChar = buCharMatch[1];
-          }
-          
-          // Extract text runs with improved handling of spaces
-          const textRuns = paragraph.match(/<a:r>.*?<\/a:r>/gs) || [];
-          if (textRuns.length === 0) {
-            // Empty paragraph
-            yOffset += defaultFontSize * lineSpacing;
-            yOffset += afterSpacing;
-            continue;
-          }
-          
-          // Extract and process each text run
-          let processedRuns = [];
-          
-          for (let i = 0; i < textRuns.length; i++) {
-            const run = textRuns[i];
-            
-            // Extract text content with proper spacing
-            const textElement = run.match(/<a:t(?:\s+[^>]*)?>([^<]*)<\/a:t>/);
-            if (!textElement) continue;
-            
-            // Extract text with proper spacing
-            const text = extractTextWithProperSpacing(run);
-            if (!text) continue;
-            
-            // Extract formatting
-            let fontSize = defaultFontSize;
+          // Find max font size
+          for (const run of textRuns) {
             const szMatch = run.match(/<a:sz\s+val="(\d+)"/);
             if (szMatch) {
-              fontSize = parseInt(szMatch[1]) / 100; // Convert from PPTX units
+              const fontSize = parseInt(szMatch[1]) / 100;
+              maxFontSize = Math.max(maxFontSize, fontSize);
             }
-            
-            // Check for bold text
-            const isBold = run.includes('<a:b/>') || run.includes('<a:b val="1"/>');
-            
-            // Check for italic text
-            const isItalic = run.includes('<a:i/>') || run.includes('<a:i val="1"/>');
-            
-            // Check for text color
-            let textColor = '#000000'; // Default black
-            const colorMatch = run.match(/<a:solidFill>.*?<a:srgbClr\s+val="([A-Fa-f0-9]{6})"/s);
-            if (colorMatch) {
-              textColor = `#${colorMatch[1]}`;
-            }
-            
-            // Add spacing between runs if needed
-            let prefix = '';
-            
-            // If this is not the first run and doesn't start with a space or punctuation,
-            // and the previous run doesn't end with space or punctuation, add a space
-            if (i > 0 && processedRuns.length > 0) {
-              const prevRun = processedRuns[processedRuns.length - 1];
-              const prevText = prevRun.text;
-              
-              if (!text.startsWith(' ') && 
-                  !text.startsWith(',') && 
-                  !text.startsWith('.') && 
-                  !text.startsWith(';') && 
-                  !text.startsWith(':') && 
-                  !prevText.endsWith(' ') && 
-                  !prevText.endsWith(',') && 
-                  !prevText.endsWith('.') && 
-                  !prevText.endsWith(';') && 
-                  !prevText.endsWith(':')) {
-                prefix = ' ';
-              }
-            }
-            
-            // Add the run with its formatting
-            processedRuns.push({
-              text: prefix + text,
-              fontSize,
-              isBold,
-              isItalic,
-              color: textColor
-            });
           }
           
-          // Skip if no valid text content
-          if (processedRuns.length === 0) {
-            yOffset += defaultFontSize * lineSpacing;
-            yOffset += afterSpacing;
-            continue;
-          }
+          // Store paragraph info
+          paragraphsInfo.push({
+            paragraph,
+            lineSpacing,
+            beforeSpacing,
+            afterSpacing,
+            alignment,
+            indentLevel,
+            isBullet,
+            bulletChar,
+            maxFontSize,
+            textRuns
+          });
           
-          // Combine all runs into a single paragraph text with proper spacing
-          let combinedText = processedRuns.map(run => run.text).join('');
-          
-          // Use the largest font size for line height calculation
-          const maxFontSize = Math.max(...processedRuns.map(run => run.fontSize));
+          // Estimate height
           const lineHeight = maxFontSize * lineSpacing;
+          const estimatedNumLines = estimateNumberOfLines(paragraph, boxWidth, maxFontSize, ctx, indentLevel, isBullet);
+          const paragraphHeight = beforeSpacing + (estimatedNumLines * lineHeight) + afterSpacing + (maxFontSize * 0.2);
           
-          // Set text style
-          const firstRun = processedRuns[0];
-          ctx.font = `${firstRun.isBold ? 'bold ' : ''}${firstRun.isItalic ? 'italic ' : ''}${firstRun.fontSize}px Arial`;
+          totalTextHeight += paragraphHeight;
+        }
+        
+        // Apply vertical alignment
+        let yOffset = 2; // Small initial offset
+        
+        if (verticalAlignment === 'middle') {
+          yOffset = (boxHeight - totalTextHeight) / 2;
+        } else if (verticalAlignment === 'bottom') {
+          yOffset = boxHeight - totalTextHeight - 5;
+// Ensure minimum offset
+yOffset = Math.max(yOffset, 2);
+        
+// Render each paragraph
+for (const pInfo of paragraphsInfo) {
+  const {
+    paragraph, lineSpacing, beforeSpacing, afterSpacing,
+    alignment, indentLevel, isBullet, bulletChar, maxFontSize, textRuns
+  } = pInfo;
+  
+  // Add before spacing
+  yOffset += beforeSpacing;
+  
+  // Calculate line height
+  const lineHeight = maxFontSize * lineSpacing;
+  
+  // Skip if no text runs
+  if (textRuns.length === 0) {
+    yOffset += lineHeight + afterSpacing;
+    continue;
+  }
+  
+  // Process text runs
+  const processedRuns = processTextRuns(textRuns, defaultFontSize, fontFallbackMap);
+  
+  // Skip if no processed runs
+  if (processedRuns.length === 0) {
+    yOffset += lineHeight + afterSpacing;
+    continue;
+  }
+  
+  // Calculate bullet indent - critical for hierarchical lists
+  // Use a more prominent indentation that scales with level
+  const baseIndent = maxFontSize * 1.2;
+  const levelIndent = maxFontSize * 0.8; // Indent per level
+  const bulletIndent = baseIndent + (indentLevel * levelIndent);
+  
+  // Calculate available width
+  let availableWidth = boxWidth - 10; // 5px margin on each side
+  
+  // If bullet point with left alignment, adjust width
+  if (isBullet && alignment === 'left') {
+    availableWidth -= bulletIndent;
+  } else if (indentLevel > 0) {
+    // For non-bullet indented text
+    availableWidth -= (indentLevel * levelIndent);
+  }
+  
+  // Get combined text for line wrapping
+  const combinedText = processedRuns.map(r => r.text).join('');
+  
+  // Set font for measuring
+  const firstRun = processedRuns[0];
+  ctx.font = getCanvasFont(firstRun);
+  
+  // Wrap text into lines
+  const lines = wrapText(combinedText, availableWidth, ctx);
+  
+  // Render each line
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    
+    // Calculate base X position based on alignment
+    let lineX = x + 5; // Default left margin
+    
+    if (alignment === 'center') {
+      lineX = x + (boxWidth / 2);
+    } else if (alignment === 'right') {
+      lineX = x + boxWidth - 5;
+    }
+    
+    // Apply indentation for hierarchical bullet points
+    if (alignment === 'left') {
+      if (isBullet) {
+        // Draw bullet on first line only
+        if (lineIndex === 0) {
+          // Calculate the exact bullet position based on indent level
+          const bulletX = lineX + (indentLevel * levelIndent);
+          
+          // Ensure consistent bullet style
+          ctx.font = `${maxFontSize}px Arial`;
           ctx.fillStyle = firstRun.color;
           ctx.textBaseline = 'top';
-          ctx.textAlign = alignment;
+          ctx.textAlign = 'left';
           
-          // Calculate available text width
-          let availableWidth = boxWidth - 10; // 5px margin on each side
-          
-          // If bullet point, add indent
-          if (isBullet && alignment === 'left') {
-            availableWidth -= maxFontSize * 1.5;
-          }
-          
-          // Break text into lines
-          const words = combinedText.split(' ');
-          let lines = [];
-          let currentLine = '';
-          
-          for (const word of words) {
-            if (!word) continue;
-            
-            const testLine = currentLine ? `${currentLine} ${word}` : word;
-            const metrics = ctx.measureText(testLine);
-            
-            if (metrics.width > availableWidth && currentLine) {
-              lines.push(currentLine);
-              currentLine = word;
-            } else {
-              currentLine = testLine;
-            }
-          }
-          
-          // Add the last line
-          if (currentLine) lines.push(currentLine);
-          
-          // If no lines were created, force the text as a single line
-          if (lines.length === 0 && combinedText.trim()) {
-            lines = [combinedText.trim()];
-          }
-          
-          // Draw each line
-          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-            const line = lines[lineIndex];
-            
-            // Calculate the starting x position based on alignment
-            let lineX = x + 5; // Default left alignment with small margin
-            
-            if (alignment === 'center') {
-              lineX = x + (boxWidth / 2);
-            } else if (alignment === 'right') {
-              lineX = x + boxWidth - 5;
-            }
-            
-            // If it's a bullet point and it's the first line, add the bullet
-            if (isBullet && lineIndex === 0) {
-              if (alignment === 'left') {
-                // Draw bullet
-                ctx.fillText(bulletChar, lineX, y + yOffset);
-                // Indent the text
-                lineX += maxFontSize * 1.5;
-              } else if (alignment === 'center') {
-                // For center alignment, adjust the bullet position
-                const textWidth = ctx.measureText(line).width;
-                const bulletX = lineX - (textWidth / 2) - maxFontSize;
-                ctx.fillText(bulletChar, bulletX, y + yOffset);
-              } else if (alignment === 'right') {
-                // For right alignment, place bullet before the text
-                const textWidth = ctx.measureText(line).width;
-                const bulletX = lineX - textWidth - maxFontSize;
-                ctx.fillText(bulletChar, bulletX, y + yOffset);
-              }
-            }
-            
-            // Draw the text
-            ctx.fillText(line, lineX, y + yOffset);
-            
-            // Move to next line
-            yOffset += lineHeight;
-          }
-          
-          // Add after spacing
-          yOffset += afterSpacing;
-          
-          // Add extra space between paragraphs
-          yOffset += maxFontSize * 0.3;
+          // Draw the bullet
+          ctx.fillText(bulletChar, bulletX, y + yOffset);
         }
-      } catch (textErr) {
-        console.warn('Error drawing text shape:', textErr);
+        
+        // Indent text - all lines in a bullet point
+        lineX += bulletIndent;
+      } else if (indentLevel > 0) {
+        // For non-bullet indented text
+        lineX += (indentLevel * levelIndent);
       }
     }
-  } catch (err) {
-    console.warn('Error drawing slide text:', err);
+    
+    // Set text properties
+    ctx.font = getCanvasFont(firstRun);
+    ctx.fillStyle = firstRun.color;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = alignment;
+    
+    // Draw text
+    ctx.fillText(line, lineX, y + yOffset);
+    
+    // Draw underline if needed
+    if (firstRun.isUnderline) {
+      drawTextUnderline(ctx, line, lineX, y + yOffset, firstRun, alignment);
+    }
+    
+    // Move to next line
+    yOffset += lineHeight;
   }
+  
+  // Add after spacing
+  yOffset += afterSpacing;
+  
+  // Add space between paragraphs
+  yOffset += maxFontSize * 0.2;
+}
+} catch (err) {
+console.error('Error rendering text shape:', err);
+}
+}
+} catch (err) {
+console.error('Error in drawSlideText:', err);
+}
 }
 
 /**
- * Convert data URL to bytes
- * @param {string} dataUrl - Data URL string
- * @returns {Uint8Array} - Byte array
- */
+* Process text runs to extract formatting and ensure proper spacing
+* @param {Array} textRuns - Array of text run XML strings
+* @param {number} defaultFontSize - Default font size
+* @param {Object} fontMap - Font fallback map
+* @returns {Array} - Array of processed text runs with formatting
+*/
+function processTextRuns(textRuns, defaultFontSize, fontMap) {
+const processedRuns = [];
+
+for (let i = 0; i < textRuns.length; i++) {
+const run = textRuns[i];
+
+// Extract text content
+const textMatch = run.match(/<a:t(?:\s+xml:space="preserve")?>([\s\S]*?)<\/a:t>/);
+if (!textMatch) continue;
+
+const preserveSpaces = run.includes('xml:space="preserve"');
+
+// Decode text content
+let text = textMatch[1]
+.replace(/&lt;/g, '<')
+.replace(/&gt;/g, '>')
+.replace(/&amp;/g, '&')
+.replace(/&quot;/g, '"')
+.replace(/&apos;/g, "'")
+.replace(/&#x([0-9A-F]+);/gi, (match, hex) => String.fromCodePoint(parseInt(hex, 16)));
+
+// Handle spaces
+if (!preserveSpaces) {
+text = text.replace(/\s+/g, ' ');
+}
+
+// If empty, skip
+if (!text) continue;
+
+// Calculate if we need to add a space between runs
+let prefix = '';
+
+if (i > 0 && processedRuns.length > 0) {
+const prevRun = processedRuns[processedRuns.length - 1];
+const prevText = prevRun.text;
+
+// This regex checks if text starts with whitespace or punctuation
+if (!text.match(/^[\s,.;:!?()[\]{}'"]/)) {
+// This regex checks if previous text ends with whitespace or punctuation
+if (!prevText.match(/[\s,.;:!?()[\]{}'"']$/)) {
+  prefix = ' ';
+}
+}
+}
+
+// Extract formatting
+let fontSize = defaultFontSize;
+const szMatch = run.match(/<a:sz\s+val="(\d+)"/);
+if (szMatch) {
+fontSize = parseInt(szMatch[1]) / 100;
+}
+
+// Text formatting
+const isBold = run.includes('<a:b/>') || run.includes('<a:b val="1"/>');
+const isItalic = run.includes('<a:i/>') || run.includes('<a:i val="1"/>');
+const isUnderline = run.includes('<a:u/>') || run.includes('<a:u val="sng"/>');
+
+// Text color
+let textColor = '#000000'; // Default
+const colorMatch = run.match(/<a:solidFill>[\s\S]*?<a:srgbClr\s+val="([A-Fa-f0-9]{6})"/);
+if (colorMatch) {
+textColor = `#${colorMatch[1]}`;
+}
+
+// Font family
+let fontFamily = fontMap.default;
+const fontMatch = run.match(/<a:latin\s+typeface="([^"]*)"/);
+if (fontMatch) {
+const fontName = fontMatch[1];
+fontFamily = fontMap[fontName] || fontMap.default;
+}
+
+// Add processed run
+processedRuns.push({
+text: prefix + text,
+fontSize,
+isBold,
+isItalic,
+isUnderline,
+color: textColor,
+fontFamily
+});
+}
+
+return processedRuns;
+}
+
+/**
+* Wrap text into lines that fit available width
+* @param {string} text - Text to wrap
+* @param {number} maxWidth - Maximum width in pixels
+* @param {CanvasRenderingContext2D} ctx - Canvas context for measuring
+* @returns {Array} - Array of wrapped lines
+*/
+function wrapText(text, maxWidth, ctx) {
+// Handle extra-long words by allowing them to extend beyond maxWidth
+const words = text.split(' ');
+const lines = [];
+let currentLine = '';
+
+// Check if there's any text to process
+if (!text.trim()) {
+return lines;
+}
+
+for (const word of words) {
+if (!word) continue;
+
+const testLine = currentLine ? `${currentLine} ${word}` : word;
+const metrics = ctx.measureText(testLine);
+
+if (metrics.width > maxWidth && currentLine) {
+lines.push(currentLine);
+currentLine = word;
+} else {
+currentLine = testLine;
+}
+}
+
+// Add the last line
+if (currentLine) {
+lines.push(currentLine);
+}
+
+// If somehow we ended up with nothing, use original text
+if (lines.length === 0 && text.trim()) {
+lines.push(text.trim());
+}
+
+return lines;
+}
+
+/**
+* Draw underline for text
+* @param {CanvasRenderingContext2D} ctx - Canvas context
+* @param {string} text - Text to underline
+* @param {number} x - X position
+* @param {number} y - Y position
+* @param {Object} run - Text run with formatting
+* @param {string} alignment - Text alignment
+*/
+function drawTextUnderline(ctx, text, x, y, run, alignment) {
+const metrics = ctx.measureText(text);
+const underlineY = y + run.fontSize + 1;
+
+ctx.beginPath();
+
+if (alignment === 'left') {
+ctx.moveTo(x, underlineY);
+ctx.lineTo(x + metrics.width, underlineY);
+} else if (alignment === 'center') {
+ctx.moveTo(x - metrics.width / 2, underlineY);
+ctx.lineTo(x + metrics.width / 2, underlineY);
+} else if (alignment === 'right') {
+ctx.moveTo(x - metrics.width, underlineY);
+ctx.lineTo(x, underlineY);
+}
+
+ctx.strokeStyle = run.color;
+ctx.lineWidth = 1;
+ctx.stroke();
+}
+
+/**
+* Estimate the number of lines a paragraph will take
+* @param {string} paragraph - Paragraph XML
+* @param {number} maxWidth - Maximum width
+* @param {number} fontSize - Font size
+* @param {CanvasRenderingContext2D} ctx - Canvas context
+* @param {number} indentLevel - Indent level
+* @param {boolean} isBullet - Is bullet point
+* @returns {number} - Estimated number of lines
+*/
+function estimateNumberOfLines(paragraph, maxWidth, fontSize, ctx, indentLevel, isBullet) {
+try {
+// Extract all text
+const textMatches = paragraph.match(/<a:t(?:\s+xml:space="preserve")?>([\s\S]*?)<\/a:t>/g) || [];
+let combinedText = '';
+
+// Process each text element
+for (const match of textMatches) {
+const contentMatch = match.match(/<a:t(?:\s+xml:space="preserve")?>([\s\S]*?)<\/a:t>/);
+if (contentMatch) {
+combinedText += contentMatch[1]
+  .replace(/&lt;/g, '<')
+  .replace(/&gt;/g, '>')
+  .replace(/&amp;/g, '&')
+  .replace(/&quot;/g, '"')
+  .replace(/&apos;/g, "'");
+}
+}
+
+// Calculate available width
+let availableWidth = maxWidth - 10; // 5px margin on each side
+
+if (isBullet) {
+// More generous indent for bullet points
+availableWidth -= (fontSize * 1.2 + indentLevel * fontSize * 0.8);
+} else if (indentLevel > 0) {
+// For non-bullet indented text
+availableWidth -= (indentLevel * fontSize * 0.8);
+}
+
+// Set font for measuring
+ctx.font = `${fontSize}px Arial`;
+
+// Count how many lines this would take
+const words = combinedText.split(' ');
+let numLines = 1;
+let currentLine = '';
+
+for (const word of words) {
+if (!word) continue;
+
+const testLine = currentLine ? `${currentLine} ${word}` : word;
+const metrics = ctx.measureText(testLine);
+
+if (metrics.width > availableWidth && currentLine) {
+numLines++;
+currentLine = word;
+} else {
+currentLine = testLine;
+}
+}
+
+return Math.max(1, numLines); // At least 1 line
+} catch (err) {
+console.warn('Error estimating lines:', err);
+return 1; // Default to 1 line on error
+}
+}
+
+/**
+* Convert data URL to bytes
+* @param {string} dataUrl - Data URL string
+* @returns {Uint8Array} - Byte array
+*/
 function dataURLToBytes(dataUrl) {
-  const base64 = dataUrl.split(',')[1];
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  
-  return bytes;
+const base64 = dataUrl.split(',')[1];
+const binaryString = atob(base64);
+const bytes = new Uint8Array(binaryString.length);
+
+for (let i = 0; i < binaryString.length; i++) {
+bytes[i] = binaryString.charCodeAt(i);
+}
+
+return bytes;
 }
 
 /**
- * Get MIME type from filename
- * @param {string} filename - Filename
- * @returns {string} - MIME type
- */
+* Get MIME type from filename
+* @param {string} filename - Filename
+* @returns {string} - MIME type
+*/
 function getMimeType(filename) {
-  if (filename.endsWith('.png')) return 'image/png';
-  if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'image/jpeg';
-  if (filename.endsWith('.gif')) return 'image/gif';
-  if (filename.endsWith('.svg')) return 'image/svg+xml';
-  return 'application/octet-stream';
+if (filename.endsWith('.png')) return 'image/png';
+if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'image/jpeg';
+if (filename.endsWith('.gif')) return 'image/gif';
+if (filename.endsWith('.svg')) return 'image/svg+xml';
+return 'application/octet-stream';
 }
