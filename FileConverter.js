@@ -49,7 +49,7 @@ const FileConverter = () => {
       setConversionInfo({
         title: 'PowerPoint to PDF Conversion',
         description: 'Converts PowerPoint presentations to PDF format.',
-        limitations: 'Basic text extraction only. Formatting, images, and animations are not preserved in this version.'
+        limitations: 'Each slide is rendered as a full page image in the PDF, preserving visual appearance.' 
       });
     } else {
       setError(`Unsupported file type: .${extension}`);
@@ -79,7 +79,7 @@ const FileConverter = () => {
       setConversionInfo({
         title: 'PowerPoint to PDF Conversion',
         description: 'Converts PowerPoint presentations to PDF format.',
-        limitations: 'Basic text extraction only. Formatting, images, and animations are not preserved in this version.'
+        limitations: 'Each slide is rendered as a full page image in the PDF, preserving visual appearance.'
       });
     }
   };
@@ -95,18 +95,9 @@ const FileConverter = () => {
       setProgress(0);
       setError(null);
       
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setProgress((prevProgress) => {
-          const newProgress = prevProgress + 5;
-          return newProgress >= 90 ? 90 : newProgress;
-        });
-      }, 300);
-      
       // Perform the conversion
       const result = await convertDocument(file, conversionType, (p) => setProgress(p));
       
-      clearInterval(progressInterval);
       setProgress(100);
       setConvertedFile(result);
       
