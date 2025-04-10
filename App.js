@@ -6,6 +6,7 @@ import {
 } from '@chakra-ui/react';
 import { HamburgerIcon } from '@chakra-ui/icons';
 import FileConverter from './components/FileConverter/FileConverter';
+import ChemistryLab from './components/ChemistryLab/ChemistryLab';
 import Navigation from './components/Navigation/Navigation';
 
 const App = () => {
@@ -16,6 +17,8 @@ const App = () => {
     switch (activeTool) {
       case 'fileConverter':
         return <FileConverter />;
+      case 'chemistryLab':
+        return <ChemistryLab />;
       // Future tools will be added here
       default:
         return <FileConverter />;
