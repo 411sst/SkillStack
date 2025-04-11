@@ -7,7 +7,7 @@ import {
   Divider, Heading, Stat, StatLabel, 
   StatNumber, StatHelpText, Icon, SimpleGrid,
   List, ListItem, ListIcon, Tabs, TabList, Tab,
-  TabPanels, TabPanel
+  TabPanels, TabPanel, Container
 } from '@chakra-ui/react';
 import { SearchIcon, InfoIcon, StarIcon, AtSignIcon, CheckIcon } from '@chakra-ui/icons';
 import { FaAtom, FaThermometerHalf, FaWeight, FaFlask, FaLightbulb } from 'react-icons/fa';
@@ -15,13 +15,19 @@ import { periodicTableData } from './chemistryData';
 import { elementApplications } from './elementApplications';
 
 // Define Element Cell as a separate component
-const ElementCell = ({ element, onClick, categoryColors }) => {
+const ElementCell = ({ element, onClick, categoryColors, size = "normal" }) => {
   if (!element) return <Box w="100%" h="100%" />;
   
   const bgColor = categoryColors[element.category] || 'gray.500';
   const hoverBgColor = categoryColors[element.category] 
     ? `${categoryColors[element.category].split('.')[0]}.600` 
     : 'gray.600';
+  
+  // Adjust font size based on size prop
+  const symbolSize = size === "small" ? "md" : "xl";
+  const numberSize = size === "small" ? "2xs" : "xs";
+  const nameSize = size === "small" ? "2xs" : "xs";
+  const massSize = size === "small" ? "2xs" : "xs";
   
   return (
     <Tooltip 
@@ -41,11 +47,14 @@ const ElementCell = ({ element, onClick, categoryColors }) => {
         transition="all 0.2s"
         _hover={{ bg: hoverBgColor, transform: 'scale(1.05)' }}
         onClick={() => onClick(element)}
+        display="flex"
+        flexDirection="column"
+        justifyContent="space-between"
       >
-        <Text fontSize="xs" textAlign="right">{element.atomicNumber}</Text>
-        <Text fontSize="xl" fontWeight="bold">{element.symbol}</Text>
-        <Text fontSize="xs" noOfLines={1}>{element.name}</Text>
-        <Text fontSize="xs">{element.atomicMass?.toFixed(2) || ''}</Text>
+        <Text fontSize={numberSize} textAlign="right">{element.atomicNumber}</Text>
+        <Text fontSize={symbolSize} fontWeight="bold">{element.symbol}</Text>
+        <Text fontSize={nameSize} noOfLines={1}>{element.name}</Text>
+        <Text fontSize={massSize}>{element.atomicMass?.toFixed(2) || ''}</Text>
       </Box>
     </Tooltip>
   );
@@ -266,12 +275,12 @@ const PeriodicTable = ({ onElementSelect }) => {
   // Get unique categories for the filter dropdown
   const categories = [...new Set(periodicTableData.map(e => e.category))].sort();
   
-  // Create a 2D grid representation for the main periodic table (18 columns, 7 rows)
+  // Create a 2D grid representation for the main periodic table (18 columns, 7 rows + gap + 2 rows for lanthanides/actinides)
   const mainTable = Array(7).fill().map(() => Array(18).fill(null));
   
   // Separate arrays for lanthanides and actinides
-  let lanthanides = [];
-  let actinides = [];
+  const lanthanides = [];
+  const actinides = [];
   
   // Place elements in their correct positions
   periodicTableData.forEach(element => {
@@ -294,8 +303,8 @@ const PeriodicTable = ({ onElementSelect }) => {
   });
   
   // Sort lanthanides and actinides by atomic number
-  lanthanides = lanthanides.sort((a, b) => a.atomicNumber - b.atomicNumber);
-  actinides = actinides.sort((a, b) => a.atomicNumber - b.atomicNumber);
+  lanthanides.sort((a, b) => a.atomicNumber - b.atomicNumber);
+  actinides.sort((a, b) => a.atomicNumber - b.atomicNumber);
   
   return (
     <Box>
@@ -359,157 +368,65 @@ const PeriodicTable = ({ onElementSelect }) => {
           ))}
         </Grid>
       ) : (
-        // Display full periodic table with scrollbar container
-        <Box overflowX="auto" overflowY="auto" maxH="800px" maxW="100%">
-          {/* Main periodic table */}
-          <Grid templateColumns="repeat(18, minmax(60px, 1fr))" gap={1} mb={4} minW="1080px">
-            {mainTable.map((row, rowIndex) => 
-              row.map((element, colIndex) => (
-                <GridItem key={`${rowIndex}-${colIndex}`} aspectRatio={1}>
-                  <ElementCell 
-                    element={element} 
-                    onClick={handleElementClick}
-                    categoryColors={categoryColors}
-                  />
-                </GridItem>
-              ))
-            )}
-          </Grid>
-          
-          {/* Spacer before lanthanides/actinides */}
-          <Box h="20px" />
-          
-          {/* Lanthanides row */}
-          <Box mt={6} minW="1080px">
-            <Text ml={3} mb={1} fontSize="sm" color="gray.500">Lanthanides (57-71)</Text>
-            <Grid templateColumns="repeat(15, minmax(60px, 1fr))" gap={1} ml="120px">
-              {lanthanides.map((element) => (
-                <GridItem key={element.atomicNumber} aspectRatio={1}>
-                  <ElementCell 
-                    element={element} 
-                    onClick={handleElementClick}
-                    categoryColors={categoryColors}
-                  />
-                </GridItem>
-              ))}
+        // Display full periodic table with better layout
+        <Box>
+          <Container maxW="container.xl" px={0}>
+            {/* Main periodic table */}
+            <Grid 
+              templateColumns="repeat(18, 1fr)" 
+              gap={1}
+              mb={6}
+            >
+              {mainTable.map((row, rowIndex) => 
+                row.map((element, colIndex) => (
+                  <GridItem key={`${rowIndex}-${colIndex}`} aspectRatio={1}>
+                    <ElementCell 
+                      element={element} 
+                      onClick={handleElementClick}
+                      categoryColors={categoryColors}
+                    />
+                  </GridItem>
+                ))
+              )}
             </Grid>
-          </Box>
-          
-          {/* Actinides row - ensure this section is visible */}
-          <Box mt={3} mb={6} minW="1080px">
-            <Text ml={3} mb={1} fontSize="sm" color="gray.500">Actinides (89-103)</Text>
-            <Grid templateColumns="repeat(15, minmax(60px, 1fr))" gap={1} ml="120px">
-              {/* Manually create the actinides elements since the automatic collection might not be working */}
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 89)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 90)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 91)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 92)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 93)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 94)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 95)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 96)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 97)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 98)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 99)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 100)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 101)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 102)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-              <GridItem>
-                <ElementCell 
-                  element={periodicTableData.find(e => e.atomicNumber === 103)} 
-                  onClick={handleElementClick}
-                  categoryColors={categoryColors}
-                />
-              </GridItem>
-            </Grid>
-          </Box>
-          
-          {/* Extra space at the bottom to ensure scrolling works properly */}
-          <Box h="20px" />
+            
+            {/* Lanthanides and Actinides section with markers */}
+            <Box mt={8}>
+              <HStack spacing={1} mb={1}>
+                <Text fontSize="sm" fontWeight="bold" color="pink.500" width="60px">
+                  Lanthanides:
+                </Text>
+                <Grid templateColumns="repeat(15, 1fr)" gap={1} flex={1}>
+                  {lanthanides.map((element) => (
+                    <GridItem key={element.atomicNumber} aspectRatio={1}>
+                      <ElementCell 
+                        element={element} 
+                        onClick={handleElementClick}
+                        categoryColors={categoryColors}
+                      />
+                    </GridItem>
+                  ))}
+                </Grid>
+              </HStack>
+              
+              <HStack spacing={1} mt={1}>
+                <Text fontSize="sm" fontWeight="bold" color="magenta.500" width="60px">
+                  Actinides:
+                </Text>
+                <Grid templateColumns="repeat(15, 1fr)" gap={1} flex={1}>
+                  {actinides.map((element) => (
+                    <GridItem key={element.atomicNumber} aspectRatio={1}>
+                      <ElementCell 
+                        element={element} 
+                        onClick={handleElementClick}
+                        categoryColors={categoryColors}
+                      />
+                    </GridItem>
+                  ))}
+                </Grid>
+              </HStack>
+            </Box>
+          </Container>
         </Box>
       )}
       
