@@ -51,6 +51,7 @@
     "@emotion/react": "^11.10.6",
     "@emotion/styled": "^11.10.6",
     "cloudconvert": "^2.3.7",
+    "edge-js": "^23.1.5",
     "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^8.1.0",
     "framer-motion": "^10.12.4",
