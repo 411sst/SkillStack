@@ -59,37 +59,56 @@ The File Converter module allows students to convert between different document 
 ```
 SkillStack/
 │
-src/
-└── FileConverter/
-|   ├── Converters/
-|   │   ├── BaseConverter.cs
-|   │   ├── PDFConverter.cs
-|   │   ├── ImageConverter.cs
-|   │   ├── OfficeConverter.cs
-|   │   └── EmailConverter.cs
-|   ├── Management/
-|   │   ├── ConversionManager.cs
-|   │   ├── FileIdentificationService.cs
-|   │   └── LoggingService.cs
-|   ├── Models/
-|   │   ├── ConversionJob.cs
-|   │   ├── FileMetadata.cs
-|   │   └── ConversionResult.cs
-|   └── Utilities/
-|        ├── FileHelper.cs
-|        ├── PronomMapper.cs
-|        └── DependencyChecker.cs    # File Converter module
-│      ├── Navigation/       # Navigation components
-│      └── ...
-└── App.js           # Main application component
-└── index.js         # Entry point for React
+├── src/
+│   ├── components/
+│   │   ├── Dashboard/
+│   │   │   └── Dashboard.js
+│   │   │
+│   │   ├── ChemistryLab/
+│   │   │   ├── ChemistryLab.js             # Main component for Chemistry Lab
+│   │   │   ├── NewPeriodicTable.js         # New Periodic Table component
+│   │   │   ├── MoleculeViewer.js           # Molecule visualization
+│   │   │   ├── ReactionSimulator.js        # Chemical reaction simulator
+│   │   │   ├── VirtualExperiments.js       # Lab experiments component
+│   │   │   ├── chemistryData.js            # Elements data
+│   │   │   ├── moleculesData.js            # Molecule structures and reactions
+│   │   │   └── elementApplications.js      # Element applications and facts
+│   │   │
+│   │   └── Navigation/
+│   │       └── Navigation.js
+│   │
+│   ├── FileConverter/
+│   │   ├── Converters/
+│   │   │   ├── BaseConverter.cs
+│   │   │   ├── PDFConverter.cs
+│   │   │   ├── ImageConverter.cs
+│   │   │   ├── OfficeConverter.cs
+│   │   │   └── EmailConverter.cs
+│   │   ├── Management/
+│   │   │   ├── ConversionManager.cs
+│   │   │   ├── FileIdentificationService.cs
+│   │   │   └── LoggingService.cs
+│   │   ├── Models/
+│   │   │   ├── ConversionJob.cs
+│   │   │   ├── FileMetadata.cs
+│   │   │   └── ConversionResult.cs
+│   │   └── Utilities/
+│   │        ├── FileHelper.cs
+│   │        ├── PronomMapper.cs
+│   │        └── DependencyChecker.cs
+│   │
+│   ├── App.js                              # Main application component
+│   └── index.js                            # Entry point for React
 │
-├── public/              # Static files
-│   └── index.html       # HTML template
+├── public/
+│   ├── images/
+│   │   └── logo.png
+│   │
+│   └── index.html                          # HTML template
 │
-├── main.js              # Electron main process
-├── preload.js           # Preload script for Electron
-└── package.json         # Project dependencies and scripts
+├── main.js                                 # Electron main process
+├── preload.js                              # Preload script for Electron
+└── package.json                            # Project dependencies and scripts
 ```
 
 ## Roadmap
