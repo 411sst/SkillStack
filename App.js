@@ -1,65 +1,37 @@
 import React, { useState } from 'react';
 import { 
-  Box, Flex, VStack, Heading, IconButton, Drawer, 
-  DrawerBody, DrawerHeader, DrawerOverlay, DrawerContent, 
-  DrawerCloseButton, useDisclosure
+  Box
 } from '@chakra-ui/react';
-import { HamburgerIcon } from '@chakra-ui/icons';
+import Dashboard from './components/Dashboard/Dashboard';
 import FileConverter from './components/FileConverter/FileConverter';
 import ChemistryLab from './components/ChemistryLab/ChemistryLab';
-import Navigation from './components/Navigation/Navigation';
 
 const App = () => {
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const [activeTool, setActiveTool] = useState('fileConverter');
+  const [activeTool, setActiveTool] = useState(null);
+
+  const handleToolSelect = (tool) => {
+    setActiveTool(tool);
+  };
+
+  const handleBack = () => {
+    setActiveTool(null);
+  };
 
   const renderActiveTool = () => {
     switch (activeTool) {
       case 'fileConverter':
-        return <FileConverter />;
+        return <FileConverter onBack={handleBack} />;
       case 'chemistryLab':
-        return <ChemistryLab />;
-      // Future tools will be added here
+        return <ChemistryLab onBack={handleBack} />;
+      // Add more tools as they are developed
       default:
-        return <FileConverter />;
+        return <Dashboard onToolSelect={handleToolSelect} />;
     }
   };
 
   return (
-    <Box h="100vh">
-      <Flex as="header" align="center" justify="space-between" p={4} bg="brand.500" color="white">
-        <Flex align="center">
-          <IconButton
-            icon={<HamburgerIcon />}
-            variant="outline"
-            onClick={onOpen}
-            aria-label="Open menu"
-            mr={4}
-          />
-          <Heading size="md">Skill Stack</Heading>
-        </Flex>
-      </Flex>
-
-      <Drawer isOpen={isOpen} placement="left" onClose={onClose}>
-        <DrawerOverlay />
-        <DrawerContent>
-          <DrawerCloseButton />
-          <DrawerHeader>Tools</DrawerHeader>
-          <DrawerBody>
-            <Navigation 
-              activeTool={activeTool} 
-              setActiveTool={(tool) => {
-                setActiveTool(tool);
-                onClose();
-              }} 
-            />
-          </DrawerBody>
-        </DrawerContent>
-      </Drawer>
-
-      <Box as="main" p={6} h="calc(100vh - 72px)" overflowY="auto">
-        {renderActiveTool()}
-      </Box>
+    <Box>
+      {renderActiveTool()}
     </Box>
   );
 };

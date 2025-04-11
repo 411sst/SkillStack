@@ -2,14 +2,15 @@
 import React, { useState } from 'react';
 import { 
   Box, VStack, Heading, Text, Tabs, TabList, TabPanels, Tab, TabPanel,
-  Grid, GridItem, useColorModeValue, Flex
+  Grid, GridItem, useColorModeValue, Flex, Button
 } from '@chakra-ui/react';
+import { ArrowBackIcon } from '@chakra-ui/icons';
 import PeriodicTable from './PeriodicTable';
 import MoleculeViewer from './MoleculeViewer';
 import ReactionSimulator from './ReactionSimulator';
 import VirtualExperiments from './VirtualExperiments';
 
-const ChemistryLab = () => {
+const ChemistryLab = ({ onBack }) => {
   const [activeElement, setActiveElement] = useState(null);
   const [activeMolecule, setActiveMolecule] = useState(null);
   
@@ -27,8 +28,18 @@ const ChemistryLab = () => {
   
   return (
     <VStack spacing={6} align="stretch">
-      <Heading size="lg">Virtual Chemistry Lab</Heading>
-      <Text>Explore chemical elements, molecules, and reactions in this interactive lab</Text>
+      <Flex align="center" justify="space-between">
+        <Button 
+          leftIcon={<ArrowBackIcon />} 
+          variant="ghost" 
+          onClick={onBack}
+        >
+          Back to Dashboard
+        </Button>
+        <Heading size="lg" flex={1} textAlign="center">Virtual Chemistry Lab</Heading>
+      </Flex>
+      
+      <Text px={6}>Explore chemical elements, molecules, and reactions in this interactive lab</Text>
       
       <Tabs variant="enclosed" colorScheme="blue" isLazy>
         <TabList>
