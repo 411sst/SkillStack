@@ -59,13 +59,30 @@ The File Converter module allows students to convert between different document 
 ```
 SkillStack/
 │
-├── src/                  # Source files
-│   ├── components/       # React components
-│   │   ├── FileConverter/    # File Converter module
-│   │   ├── Navigation/       # Navigation components
-│   │   └── ...
-│   ├── App.js           # Main application component
-│   └── index.js         # Entry point for React
+src/
+└── FileConverter/
+|   ├── Converters/
+|   │   ├── BaseConverter.cs
+|   │   ├── PDFConverter.cs
+|   │   ├── ImageConverter.cs
+|   │   ├── OfficeConverter.cs
+|   │   └── EmailConverter.cs
+|   ├── Management/
+|   │   ├── ConversionManager.cs
+|   │   ├── FileIdentificationService.cs
+|   │   └── LoggingService.cs
+|   ├── Models/
+|   │   ├── ConversionJob.cs
+|   │   ├── FileMetadata.cs
+|   │   └── ConversionResult.cs
+|   └── Utilities/
+|        ├── FileHelper.cs
+|        ├── PronomMapper.cs
+|        └── DependencyChecker.cs    # File Converter module
+│      ├── Navigation/       # Navigation components
+│      └── ...
+└── App.js           # Main application component
+└── index.js         # Entry point for React
 │
 ├── public/              # Static files
 │   └── index.html       # HTML template
