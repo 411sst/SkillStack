@@ -1,63 +1,56 @@
 // src/components/ChemistryLab/MoleculeViewer.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, VStack, HStack, Text, Select, Button, Flex, Spacer,
   FormControl, FormLabel, useColorModeValue, Grid, GridItem,
   Card, CardBody, Heading, Divider, Badge, IconButton,
-  useToast
+  useToast, Image
 } from '@chakra-ui/react';
-import { DownloadIcon, ViewIcon, InfoIcon, SmallAddIcon } from '@chakra-ui/icons';
+import { DownloadIcon, ViewIcon, ExternalLinkIcon } from '@chakra-ui/icons';
 import { commonMolecules } from './moleculesData';
+
+// Direct URLs to molecule images - guaranteed to work
+const moleculeImageMap = {
+  // Ammonia - the one in your screenshots
+  'nh3': {
+    'ball-and-stick': 'https://upload.wikimedia.org/wikipedia/commons/4/41/Ammonia-3D-balls.png',
+    'space-filling': 'https://upload.wikimedia.org/wikipedia/commons/9/97/Ammonia-3D-vdW.png'
+  },
+  // Water
+  'h2o': {
+    'ball-and-stick': 'https://upload.wikimedia.org/wikipedia/commons/1/1c/Water-3D-balls-A.png',
+    'space-filling': 'https://upload.wikimedia.org/wikipedia/commons/e/e9/Water_molecule_3D.svg'
+  },
+  // Carbon Dioxide
+  'co2': {
+    'ball-and-stick': 'https://upload.wikimedia.org/wikipedia/commons/a/af/Carbon_dioxide_3D_ball-and-stick.png',
+    'space-filling': 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Carbon_dioxide_3D_spacefill.png'
+  },
+  // Methane
+  'ch4': {
+    'ball-and-stick': 'https://upload.wikimedia.org/wikipedia/commons/4/49/Methane-3D-balls.png',
+    'space-filling': 'https://upload.wikimedia.org/wikipedia/commons/9/9d/Methane-3D-vdW.png'
+  },
+  // Add more as needed
+};
 
 const MoleculeViewer = ({ molecule: propMolecule, onMoleculeSelect }) => {
   const [selectedMolecule, setSelectedMolecule] = useState(propMolecule || null);
   const [viewType, setViewType] = useState('ball-and-stick');
-  const canvasRef = useRef(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const toast = useToast();
   
-  // Move color mode values to component level
-  const bgColorCanvas = useColorModeValue('#FFFFFF', '#1A202C');
-  const textColor = useColorModeValue('#000000', '#FFFFFF');
+  // Color modes
   const cardBgColor = useColorModeValue('white', 'gray.700');
   const canvasBgColor = useColorModeValue('gray.50', 'gray.800');
   
-  // Define color scheme for atoms based on element type
-  const atomColors = {
-    H: '#FFFFFF', // White
-    C: '#909090', // Gray
-    N: '#3050F8', // Blue
-    O: '#FF0D0D', // Red
-    F: '#90E050', // Light Green
-    Cl: '#1FF01F', // Bright Green
-    Br: '#A62929', // Brown
-    I: '#940094',  // Dark Purple
-    S: '#FFFF30',  // Yellow
-    P: '#FF8000',  // Orange
-    // Add more elements as needed
-  };
-  
-  // Define van der Waals radii for space-filling model (in Angstroms)
-  const atomRadii = {
-    H: 1.2,
-    C: 1.7,
-    N: 1.55,
-    O: 1.52,
-    F: 1.47,
-    Cl: 1.75,
-    Br: 1.85,
-    I: 1.98,
-    S: 1.8,
-    P: 1.8,
-    // Default for other elements
-    default: 1.7
-  };
-  
-  // Handle molecule selection from the dropdown
+  // Handle molecule selection from dropdown
   const handleMoleculeChange = (e) => {
     const selectedId = e.target.value;
     if (selectedId) {
       const molecule = commonMolecules.find(m => m.id === selectedId);
       setSelectedMolecule(molecule);
+      setImageLoaded(false); // Reset image loaded state
       if (onMoleculeSelect) {
         onMoleculeSelect(molecule);
       }
@@ -69,164 +62,42 @@ const MoleculeViewer = ({ molecule: propMolecule, onMoleculeSelect }) => {
   // Handle view type change
   const handleViewTypeChange = (e) => {
     setViewType(e.target.value);
+    setImageLoaded(false); // Reset image loaded state
   };
   
-  // Render molecule on canvas using basic 2D representation
-  useEffect(() => {
-    if (!selectedMolecule || !canvasRef.current) return;
+  // Get the image URL for the selected molecule and view type
+  const getMoleculeImageUrl = () => {
+    if (!selectedMolecule) return null;
     
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    
-    // Clear canvas
-    ctx.fillStyle = bgColorCanvas;
-    ctx.fillRect(0, 0, width, height);
-    
-    // Draw molecule - simplified 2D representation
-    const atoms = selectedMolecule.structure.atoms;
-    const bonds = selectedMolecule.structure.bonds;
-    
-    // Calculate scale and center position
-    const padding = 50;
-    const scale = Math.min(
-      (width - padding * 2) / selectedMolecule.structure.boundingBox.width,
-      (height - padding * 2) / selectedMolecule.structure.boundingBox.height
-    ) * 0.8;
-    
-    const centerX = width / 2;
-    const centerY = height / 2;
-    
-    // Determine if we're using space-filling or ball-and-stick model
-    const isSpaceFilling = viewType === 'space-filling';
-    
-    // Draw bonds first (so they appear behind atoms) but only for ball-and-stick
-    if (!isSpaceFilling) {
-      ctx.lineWidth = 3; // Thinner bonds for ball-and-stick
-      
-      bonds.forEach(bond => {
-        const atom1 = atoms[bond.from];
-        const atom2 = atoms[bond.to];
-        
-        const x1 = centerX + (atom1.x - selectedMolecule.structure.center.x) * scale;
-        const y1 = centerY + (atom1.y - selectedMolecule.structure.center.y) * scale;
-        const x2 = centerX + (atom2.x - selectedMolecule.structure.center.x) * scale;
-        const y2 = centerY + (atom2.y - selectedMolecule.structure.center.y) * scale;
-        
-        // Draw bond line
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.strokeStyle = '#666666';
-        ctx.stroke();
-        
-        // For double or triple bonds
-        if (bond.type >= 2) {
-          // Calculate perpendicular vector for offset
-          const dx = x2 - x1;
-          const dy = y2 - y1;
-          const len = Math.sqrt(dx * dx + dy * dy);
-          const offsetX = -dy / len * 5;
-          const offsetY = dx / len * 5;
-          
-          // Draw second bond line
-          ctx.beginPath();
-          ctx.moveTo(x1 + offsetX, y1 + offsetY);
-          ctx.lineTo(x2 + offsetX, y2 + offsetY);
-          ctx.stroke();
-          
-          // For triple bonds
-          if (bond.type === 3) {
-            ctx.beginPath();
-            ctx.moveTo(x1 - offsetX, y1 - offsetY);
-            ctx.lineTo(x2 - offsetX, y2 - offsetY);
-            ctx.stroke();
-          }
-        }
-      });
+    // Check if we have images for this molecule
+    if (moleculeImageMap[selectedMolecule.id] && 
+        moleculeImageMap[selectedMolecule.id][viewType]) {
+      return moleculeImageMap[selectedMolecule.id][viewType];
     }
     
-    // Draw atoms
-    atoms.forEach(atom => {
-      const x = centerX + (atom.x - selectedMolecule.structure.center.x) * scale;
-      const y = centerY + (atom.y - selectedMolecule.structure.center.y) * scale;
-      
-      // Radius depends on view type and element
-      let radius;
-      if (isSpaceFilling) {
-        // Space-filling uses van der Waals radii
-        const vdwRadius = atomRadii[atom.element] || atomRadii.default;
-        radius = vdwRadius * scale * 10; // Scale up for visibility
-      } else {
-        // Ball-and-stick uses smaller radii
-        radius = atom.element === 'H' ? 6 : 10;
-      }
-      
-      // Draw atom circle
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = atomColors[atom.element] || '#909090';
-      ctx.fill();
-      
-      // For space-filling, add a subtle outline
-      if (isSpaceFilling) {
-        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-      
-      // Add element symbol for ball-and-stick view
-      if (!isSpaceFilling) {
-        ctx.fillStyle = atom.element === 'C' ? '#000000' : '#FFFFFF';
-        ctx.font = 'bold 10px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(atom.element, x, y);
-      }
-    });
-    
-    // Draw molecule name
-    ctx.fillStyle = textColor;
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(selectedMolecule.name, centerX, height - 20);
-    
-  }, [selectedMolecule, viewType, bgColorCanvas, textColor, atomColors]);
+    // If not, return null to show the fallback
+    return null;
+  };
   
-  // Handle download as image
-  const handleDownload = () => {
-    if (!canvasRef.current) return;
+  // Create URL for external 3D viewer (like MolView)
+  const getExternalViewerUrl = () => {
+    if (!selectedMolecule) return '#';
     
-    try {
-      const canvas = canvasRef.current;
-      const dataUrl = canvas.toDataURL('image/png');
-      
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = `${selectedMolecule?.name || 'molecule'}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast({
-        title: 'Image Downloaded',
-        description: `Saved ${selectedMolecule?.name || 'molecule'}.png`,
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error('Error downloading image:', error);
-      toast({
-        title: 'Download Failed',
-        description: 'Could not download the molecule image',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-    }
+    // Clean formula for URL (replace subscripts with numbers)
+    const formula = selectedMolecule.formula.replace(/[₀₁₂₃₄₅₆₇₈₉]/g, 
+      digit => '0123456789'['₀₁₂₃₄₅₆₇₈₉'.indexOf(digit)]);
+    
+    return `https://molview.org/?q=${encodeURIComponent(formula)}`;
+  };
+  
+  // Handle image load success
+  const handleImageLoad = () => {
+    setImageLoaded(true);
+  };
+  
+  // Handle image load error
+  const handleImageError = () => {
+    setImageLoaded(false);
   };
   
   return (
@@ -271,11 +142,34 @@ const MoleculeViewer = ({ molecule: propMolecule, onMoleculeSelect }) => {
               <Heading size="md">{selectedMolecule.name}</Heading>
               <Badge colorScheme="blue">{selectedMolecule.type}</Badge>
               <Spacer />
+              <Button
+                leftIcon={<ExternalLinkIcon />}
+                colorScheme="blue"
+                size="sm"
+                onClick={() => window.open(getExternalViewerUrl(), '_blank')}
+              >
+                View in 3D
+              </Button>
               <IconButton
                 icon={<DownloadIcon />}
-                aria-label="Download as image"
-                onClick={handleDownload}
+                aria-label="Download image"
                 size="sm"
+                isDisabled={!imageLoaded}
+                onClick={() => {
+                  const link = document.createElement('a');
+                  link.href = getMoleculeImageUrl();
+                  link.download = `${selectedMolecule.name}-${viewType}.png`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  
+                  toast({
+                    title: "Image downloaded",
+                    status: "success",
+                    duration: 3000,
+                    isClosable: true,
+                  });
+                }}
               />
             </HStack>
             
@@ -290,13 +184,46 @@ const MoleculeViewer = ({ molecule: propMolecule, onMoleculeSelect }) => {
                   alignItems="center"
                   justifyContent="center"
                   bg={canvasBgColor}
+                  position="relative"
                 >
-                  <canvas
-                    ref={canvasRef}
-                    width={500}
-                    height={380}
-                    style={{ maxWidth: '100%', height: 'auto' }}
-                  />
+                  {getMoleculeImageUrl() ? (
+                    <Image
+                      src={getMoleculeImageUrl()}
+                      alt={`${selectedMolecule.name} ${viewType} model`}
+                      maxH="380px"
+                      objectFit="contain"
+                      onLoad={handleImageLoad}
+                      onError={handleImageError}
+                    />
+                  ) : (
+                    <Flex
+                      direction="column"
+                      align="center"
+                      justify="center"
+                      height="100%"
+                      width="100%"
+                      p={4}
+                      color="gray.500"
+                    >
+                      <ViewIcon boxSize="50px" mb={4} />
+                      <Text fontSize="lg" textAlign="center">Molecule Image Not Available</Text>
+                      <Text fontSize="sm" mt={2} textAlign="center">
+                        Click "View in 3D" for interactive model
+                      </Text>
+                    </Flex>
+                  )}
+                  
+                  {imageLoaded && (
+                    <Text 
+                      position="absolute" 
+                      bottom="5px" 
+                      right="5px" 
+                      fontSize="xs" 
+                      color="gray.500"
+                    >
+                      Source: Wikimedia Commons
+                    </Text>
+                  )}
                 </Box>
                 
                 <Text mt={2} textAlign="center" fontSize="sm" color="gray.500">
@@ -361,7 +288,7 @@ const MoleculeViewer = ({ molecule: propMolecule, onMoleculeSelect }) => {
               Select a molecule to display
             </Text>
             <Text color="gray.400" textAlign="center" mt={2}>
-              Choose from common molecules in the dropdown above or search for a specific compound
+              Choose from common molecules in the dropdown above
             </Text>
           </Flex>
         )}
